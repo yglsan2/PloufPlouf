@@ -1,0 +1,93 @@
+# Maintainer: DesertYGL
+# PKGBUILD pour PloufPlouf — Tirage d'équipes et tirage au sort pour la classe.
+# Licence: GPL-3.0
+
+pkgname=ploufplouf
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Tirage d'équipes et tirage au sort pour la classe (PloufPlouf)"
+arch=('x86_64')
+url="https://github.com/DesertYGL/ploufplouf"
+license=('GPL-3.0')
+depends=(
+  glib2
+  gtk3
+  pango
+  cairo
+  libepoxy
+  libxkbcommon
+  icu
+)
+makedepends=(
+  cmake
+  ninja
+  clang
+  # Flutter doit être installé séparément (AUR: flutter-bin ou flutter)
+  # et présent dans PATH pour la construction.
+)
+source=(
+  "${pkgname}-${pkgver}.tar.gz"
+  # Ou utilisez le dépôt Git :
+  # "git+https://github.com/DesertYGL/ploufplouf.git#tag=v${pkgver}"
+)
+sha256sums=('SKIP')
+
+prepare() {
+  # Si vous utilisez un tarball, le répertoire sera ploufplouf-${pkgver} ou tirage_equipes
+  if [ -d "${srcdir}/tirage_equipes" ]; then
+    cd "${srcdir}/tirage_equipes"
+  elif [ -d "${srcdir}/${pkgname}-${pkgver}" ]; then
+    cd "${srcdir}/${pkgname}-${pkgver}"
+  else
+    cd "${srcdir}"
+  fi
+  flutter pub get || true
+}
+
+build() {
+  if [ -d "${srcdir}/tirage_equipes" ]; then
+    cd "${srcdir}/tirage_equipes"
+  elif [ -d "${srcdir}/${pkgname}-${pkgver}" ]; then
+    cd "${srcdir}/${pkgname}-${pkgver}"
+  else
+    cd "${srcdir}"
+  fi
+  flutter build linux --release
+}
+
+package() {
+  local _srcdir
+  if [ -d "${srcdir}/tirage_equipes" ]; then
+    _srcdir="${srcdir}/tirage_equipes"
+  elif [ -d "${srcdir}/${pkgname}-${pkgver}" ]; then
+    _srcdir="${srcdir}/${pkgname}-${pkgver}"
+  else
+    _srcdir="${srcdir}"
+  fi
+
+  local bundle="${_srcdir}/build/linux/x64/release/bundle"
+  install -d "${pkgdir}/opt/ploufplouf"
+  cp -a "${bundle}"/* "${pkgdir}/opt/ploufplouf/"
+
+  install -d "${pkgdir}/usr/bin"
+  cat > "${pkgdir}/usr/bin/ploufplouf" << 'WRAPPER'
+#!/bin/sh
+export GTK_USE_PORTAL=0
+export GDK_DEBUG=no-portals
+export XCURSOR_PATH="${XCURSOR_PATH:-/usr/share/icons:/usr/share/pixmaps}"
+exec /opt/ploufplouf/tirage_equipes "$@"
+WRAPPER
+  chmod 755 "${pkgdir}/usr/bin/ploufplouf"
+
+  install -d "${pkgdir}/usr/share/applications"
+  cat > "${pkgdir}/usr/share/applications/ploufplouf.desktop" << 'DESKTOP'
+[Desktop Entry]
+Name=PloufPlouf
+Comment=Tirage d'équipes et tirage au sort pour la classe
+Exec=/usr/bin/ploufplouf
+Icon=ploufplouf
+Terminal=false
+Type=Application
+Categories=Education;Utility;
+DESKTOP
+}
