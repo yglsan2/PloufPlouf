@@ -1,4 +1,4 @@
-package com.tirage.tirage_equipes
+package com.desertygl.ploufplouf
 
 import io.flutter.embedding.android.FlutterActivity
 

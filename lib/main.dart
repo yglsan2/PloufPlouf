@@ -1,13 +1,28 @@
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as image_lib;
+import 'package:share_plus/share_plus.dart';
 
+import 'app_version.dart';
+import 'data/team_name_themes.dart';
 import 'export_equipes.dart';
 import 'import_fichier.dart';
+import 'services/pick_fairness_service.dart';
+import 'services/plouf_sound_service.dart';
+import 'services/sound_preferences_service.dart';
+import 'utils/sound_feedback.dart';
+import 'utils/team_balance_summary.dart';
+import 'widgets/name_wheel_tab.dart';
+import 'widgets/plouf_countdown_overlay.dart';
+import 'widgets/settings_sheet.dart';
+import 'widgets/team_balance_summary_card.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await PickFairnessService.init();
+  await SoundPreferencesService.init();
+  await PloufSoundService.instance.init();
   runApp(const PloufPloufApp());
 }
 
@@ -125,54 +140,6 @@ class PloufPloufApp extends StatelessWidget {
   }
 }
 
-/// Thèmes de noms d'équipes (marrants pour les enfants). Chaque liste a 10 noms (2 à 10 équipes).
-const List<Map<String, dynamic>> _themesNomsEquipes = [
-  {
-    'label': 'Numéros',
-    'noms': ['Équipe 1', 'Équipe 2', 'Équipe 3', 'Équipe 4', 'Équipe 5', 'Équipe 6', 'Équipe 7', 'Équipe 8', 'Équipe 9', 'Équipe 10'],
-  },
-  {
-    'label': 'Animaux',
-    'noms': ['Les Lions', 'Les Aigles', 'Les Dauphins', 'Les Loups', 'Les Ours', 'Les Renards', 'Les Tigres', 'Les Éléphants', 'Les Pandas', 'Les Koalas'],
-  },
-  {
-    'label': 'Couleurs',
-    'noms': ['Les Rouges', 'Les Bleus', 'Les Verts', 'Les Jaunes', 'Les Oranges', 'Les Violets', 'Les Roses', 'Les Turquoise', 'Les Indigo', 'Les Corail'],
-  },
-  {
-    'label': 'Fruits',
-    'noms': ['Les Pommes', 'Les Bananes', 'Les Fraises', 'Les Oranges', 'Les Pastèques', 'Les Kiwis', 'Les Cerises', 'Les Pêches', 'Les Ananas', 'Les Mangues'],
-  },
-  {
-    'label': 'Dinosaures',
-    'noms': ['Les T-Rex', 'Les Ptérodactyles', 'Les Tricératops', 'Les Diplodocus', 'Les Raptors', 'Les Brontosaures', 'Les Stégosaures', 'Les Vélociraptors', 'Les Ankylosaures', 'Les Ptéranodons'],
-  },
-  {
-    'label': 'Pirates',
-    'noms': ['Les Perroquets', 'Les Canonniers', 'Les Moussaillons', 'Les Capitans', 'Les Trésors', 'Les Épées', 'Les Ancres', 'Les Compas', 'Les Sabres', 'Les Coffres'],
-  },
-  {
-    'label': 'Espace',
-    'noms': ['Les Fusées', 'Les Étoiles', 'Les Lunes', 'Les Mars', 'Les Satellites', 'Les Astronautes', 'Les Comètes', 'Les Galaxies', 'Les OVNIs', 'Les Supernovas'],
-  },
-  {
-    'label': 'Magie',
-    'noms': ['Les Magiciens', 'Les Sorciers', 'Les Dragons', 'Les Licornes', 'Les Phénix', 'Les Lutins', 'Les Fées', 'Les Trolls', 'Les Griffons', 'Les Sirènes'],
-  },
-  {
-    'label': 'Super-héros',
-    'noms': ['Les Flash', 'Les Batman', 'Les Wonder', 'Les Spider', 'Les Hulk', 'Les Thor', 'Les Iron', 'Les Captain', 'Les Black Panther', 'Les Aquaman'],
-  },
-  {
-    'label': 'Sport',
-    'noms': ['Les Champions', 'Les Rapides', 'Les Vainqueurs', 'Les Éclairs', 'Les Aigles', 'Les Foudre', 'Les Titans', 'Les Dynamo', 'Les Phoenix', 'Les Warriors'],
-  },
-  {
-    'label': 'Plouf',
-    'noms': ['Le Roi', 'La Reine', 'La Vache', 'Le Tonneau', 'Plouf 1', 'Plouf 2', 'Plouf 3', 'Plouf 4', 'Plouf 5', 'Plouf 6'],
-  },
-];
-
 /// Genre pour la répartition équilibrée : F = fille, M = garçon, null = non précisé
 class Eleve {
   String prenom;
@@ -226,7 +193,7 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
   List<String> _nomsEquipesAffiches = []; // noms affichés (modifiables)
   List<String> _tirageResultat = [];
   int _nbGagnantsTirage = 1;
-  int _themeNomsEquipes = 0; // index dans _themesNomsEquipes
+  int _themeNomsEquipes = 0; // index dans teamNameThemes
   bool _nomsEquipesAleatoire = false;
   List<String> _nomsEquipesAleatoiresCourants = [];
   /// Répartir filles et garçons équitablement dans les équipes
@@ -250,18 +217,68 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
   int _grilleZoomKey = 0;
   /// Si true, les options avancées (incompatibilités, semi-choisi, etc.) sont affichées.
   bool _optionsSpecialesVisibles = false;
+  /// Favoriser les élèves moins souvent tirés (roue + tirage au sort).
+  bool _favoriserEquite = true;
+  /// Violations d'incompatibilités du dernier tirage (pour la jauge).
+  int _lastIncompatibilityViolations = 0;
 
-  /// Pool de tous les noms marrants (tous les thèmes sauf Numéros).
-  static List<String> get _poolNomsEquipes {
-    final noms = <String>{};
-    for (var i = 1; i < _themesNomsEquipes.length; i++) {
-      noms.addAll(_themesNomsEquipes[i]['noms']! as List<String>);
-    }
-    return noms.toList();
+  @override
+  void initState() {
+    super.initState();
+    PickFairnessService.instance.addListener(_onFairnessUpdate);
+  }
+
+  @override
+  void dispose() {
+    PickFairnessService.instance.removeListener(_onFairnessUpdate);
+    super.dispose();
+  }
+
+  void _onFairnessUpdate() {
+    if (mounted) setState(() {});
+  }
+
+  List<String> get _nomsPresents => [
+        for (var i = 0; i < _eleves.length; i++)
+          if (_eleves[i].participe) _nomAffiche(i),
+      ];
+
+  Map<String, String?> _genreParNom() => {
+        for (var i = 0; i < _eleves.length; i++) _nomAffiche(i): _eleves[i].genre,
+      };
+
+  TeamBalanceSummary? get _balanceSummary {
+    if (_equipesResultat.isEmpty) return null;
+    return TeamBalanceSummary.compute(
+      equipes: _equipesResultat,
+      genreByName: _genreParNom(),
+      fgRequested: _repartirFillesGarcons,
+      incompatibilityViolations: _lastIncompatibilityViolations,
+    );
+  }
+
+  Future<void> _lancerEquipesAvecCountdown(int nbEquipes) async {
+    await PloufCountdownOverlay.show(context);
+    if (!mounted) return;
+    _faireEquipes(nbEquipes);
+  }
+
+  Future<void> _lancerTirageAvecCountdown(int nbGagnants) async {
+    await PloufCountdownOverlay.show(context);
+    if (!mounted) return;
+    _faireTirage(nbGagnants);
+  }
+
+  Future<void> _partagerEquipes() async {
+    if (_equipesResultat.isEmpty) return;
+    await Share.share(
+      buildEquipesShareText(_equipesResultat, _nomsEquipesAffiches),
+      subject: 'Équipes PloufPlouf',
+    );
   }
 
   List<String> _genererNomsAleatoires() {
-    final pool = _poolNomsEquipes..shuffle(_random);
+    final pool = buildRandomTeamNamePool()..shuffle(_random);
     return pool.take(10).toList();
   }
   final GlobalKey<_TirageNumberFieldState> _tirageNumberKey =
@@ -475,6 +492,7 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
         .toList();
     setState(() {
       _equipesResultat = equipes;
+      _lastIncompatibilityViolations = violations;
       if (_nomsEquipesAleatoire) {
         _nomsEquipesAleatoiresCourants = _genererNomsAleatoires();
       }
@@ -487,6 +505,7 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
       _historiqueEquipes.add(_dernierTirage!);
       _grilleZoomKey++; // Réinitialise le zoom de la grille pour éviter qu'il reste bloqué
     });
+    SoundFeedback.teamsReady();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('$nbEquipes équipes constituées !'),
@@ -660,17 +679,26 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
       );
       return;
     }
-    final shuffled = List<String>.from(volontaires)..shuffle(_random);
+    final shuffled = List<String>.from(volontaires);
+    PickFairnessService.instance.beginSession();
+    final picks = PickFairnessService.instance.pickMany(
+      shuffled,
+      nbGagnants,
+      _random,
+      favorEquity: _favoriserEquite,
+    );
+    PickFairnessService.instance.recordPicks(picks);
     setState(() {
-      _tirageResultat = shuffled.take(nbGagnants).toList();
+      _tirageResultat = picks;
       _grilleZoomKey++; // Réinitialise le zoom pour éviter qu'il reste bloqué
     });
+    SoundFeedback.win();
   }
 
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: SafeArea(
         top: true,
         child: Scaffold(
@@ -715,6 +743,11 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
               onPressed: _ouvrirImportDialog,
             ),
             IconButton(
+              icon: const Icon(Icons.settings_rounded),
+              tooltip: 'Paramètres (sons, etc.)',
+              onPressed: () => SettingsSheet.show(context),
+            ),
+            IconButton(
               icon: const Icon(Icons.info_outline_rounded),
               tooltip: 'À propos — Créateur et licence',
               onPressed: _ouvrirAPropos,
@@ -723,7 +756,8 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
           bottom: TabBar(
             tabs: const [
               Tab(text: 'Équipes', icon: Icon(Icons.groups_rounded)),
-              Tab(text: 'Tirage au sort', icon: Icon(Icons.shuffle_rounded)),
+              Tab(text: 'Tirage', icon: Icon(Icons.shuffle_rounded)),
+              Tab(text: 'Roue', icon: Icon(Icons.casino_rounded)),
             ],
           ),
         ),
@@ -731,6 +765,11 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
           children: [
             _buildEquipesTab(),
             _buildTirageTab(),
+            NameWheelTab(
+              names: _nomsPresents,
+              favorEquity: _favoriserEquite,
+              onFavorEquityChanged: (v) => setState(() => _favoriserEquite = v),
+            ),
           ],
         ),
         ),
@@ -817,17 +856,25 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
             itemBuilder: (context, i) {
               final e = _eleves[i];
               final equipeIdx = _indiceEquipePourEleve(i);
+              final isAbsent = isParticipation && !e.participe;
               final teamColor = equipeIdx != null
                   ? _teamBackgroundColor(context, equipeIdx + 1)
                   : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5);
+              final fairness = isParticipation && e.participe
+                  ? PickFairnessService.instance.fairnessTier(_nomAffiche(i))
+                  : null;
               return Tooltip(
-                message: _nomAffiche(i),
+                message: isAbsent
+                    ? '${_nomAffiche(i)} — absent aujourd\'hui'
+                    : _nomAffiche(i),
                 preferBelow: false,
                 verticalOffset: 20,
                 child: Material(
                   color: teamColor,
                   borderRadius: BorderRadius.circular(12),
-                  child: InkWell(
+                  child: Opacity(
+                    opacity: isAbsent ? 0.42 : 1.0,
+                    child: InkWell(
                     onTap: () => _editerNom(context, i),
                     borderRadius: BorderRadius.circular(12),
                     child: Padding(
@@ -900,6 +947,24 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
                               ),
                             ),
                           ),
+                        if (fairness != null && fairness == 0)
+                          Tooltip(
+                            message: 'Jamais tiré — prioritaire si équité activée',
+                            child: Icon(
+                              Icons.star_rounded,
+                              size: 16,
+                              color: theme.colorScheme.tertiary,
+                            ),
+                          )
+                        else if (fairness != null && fairness >= 3)
+                          Tooltip(
+                            message: 'Pas tiré depuis plusieurs séances',
+                            child: Icon(
+                              Icons.bolt_rounded,
+                              size: 16,
+                              color: theme.colorScheme.tertiary,
+                            ),
+                          ),
                         const SizedBox(width: 2),
                         IconButton(
                           icon: Icon(
@@ -918,6 +983,7 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
                       ],
                     ),
                   ),
+                ),
                 ),
                 ),
               );
@@ -1069,6 +1135,7 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
 
   Widget _buildEquipesTab() {
     final nbParticipant = _eleves.where((e) => e.participe).length;
+    final nbAbsent = _eleves.length - nbParticipant;
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
@@ -1082,11 +1149,30 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
               children: [
                 Expanded(
                   child: _SectionHeader(
-                    icon: Icons.person_add_rounded,
-                    title: 'Participants',
-                    subtitle: 'Cochez les élèves qui participent ($nbParticipant / ${_eleves.length})',
+                    icon: Icons.how_to_reg_rounded,
+                    title: 'Présents / Absents',
+                    subtitle: nbAbsent > 0
+                        ? '$nbParticipant présent(s) · $nbAbsent absent(s) — les absents ne sont pas tirés'
+                        : 'Tous présents ($nbParticipant) — décochez les absents du jour',
                   ),
                 ),
+                if (nbAbsent > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8, top: 2),
+                    child: Chip(
+                      avatar: Icon(
+                        Icons.person_off_rounded,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      label: Text('$nbAbsent absent(s)'),
+                      backgroundColor: Theme.of(context)
+                          .colorScheme
+                          .errorContainer
+                          .withValues(alpha: 0.5),
+                    ),
+                  )
+                else
                 Padding(
                   padding: const EdgeInsets.only(left: 8, top: 2),
                   child: Container(
@@ -1115,27 +1201,27 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
               builder: (context, constraints) {
                 final boutons = [
                   Tooltip(
-                    message: 'Cocher tous les élèves comme participants',
+                    message: 'Marquer toute la classe présente aujourd\'hui',
                     child: FilledButton.tonalIcon(
                       onPressed: () => setState(() {
                         for (final e in _eleves) {
                           e.participe = true;
                         }
                       }),
-                      icon: const Icon(Icons.check_box_rounded, size: 20),
-                      label: const Text('Tout cocher'),
+                      icon: const Icon(Icons.groups_rounded, size: 20),
+                      label: const Text('Tous présents'),
                     ),
                   ),
                   Tooltip(
-                    message: 'Décocher tous les participants',
+                    message: 'Marquer toute la classe absente (ex. avant l\'appel)',
                     child: OutlinedButton.icon(
                       onPressed: () => setState(() {
                         for (final e in _eleves) {
                           e.participe = false;
                         }
                       }),
-                      icon: const Icon(Icons.check_box_outline_blank_rounded, size: 20),
-                      label: const Text('Tout décocher'),
+                      icon: const Icon(Icons.person_off_rounded, size: 20),
+                      label: const Text('Tous absents'),
                     ),
                   ),
                   Tooltip(
@@ -1213,12 +1299,12 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
             LayoutBuilder(
               builder: (context, constraints) {
                 final chips = <Widget>[
-                  ...List.generate(_themesNomsEquipes.length, (i) {
-                    final theme = _themesNomsEquipes[i];
-                    final label = theme['label'] as String;
+                  ...List.generate(teamNameThemes.length, (i) {
+                    final theme = teamNameThemes[i];
                     final selected = !_nomsEquipesAleatoire && _themeNomsEquipes == i;
                     return FilterChip(
-                      label: Text(label),
+                      avatar: Text(theme.emoji, style: const TextStyle(fontSize: 16)),
+                      label: Text(theme.label),
                       selected: selected,
                       onSelected: (v) => setState(() {
                         _nomsEquipesAleatoire = false;
@@ -1255,6 +1341,17 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
                 );
               },
             ),
+            if (!_nomsEquipesAleatoire) ...[
+              const SizedBox(height: 8),
+              Text(
+                teamNameThemes[_themeNomsEquipes].description ??
+                    'Ex. ${teamNameThemes[_themeNomsEquipes].noms.take(4).join(', ')}…',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1314,7 +1411,7 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
                       onPressed: canLaunch
                           ? () {
                               HapticFeedback.mediumImpact();
-                              _faireEquipes(n);
+                              _lancerEquipesAvecCountdown(n);
                             }
                           : null,
                       child: Text('$n équipes'),
@@ -1350,11 +1447,29 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
                 subtitle: '$nbParticipant participants',
               ),
               const SizedBox(height: 8),
-              FilledButton.tonalIcon(
-                onPressed: _ouvrirExportEquipes,
-                icon: const Icon(Icons.save_rounded, size: 20),
-                label: const Text('Exporter / Enregistrer les équipes'),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: _ouvrirExportEquipes,
+                      icon: const Icon(Icons.save_rounded, size: 20),
+                      label: const Text('Enregistrer'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _partagerEquipes,
+                      icon: const Icon(Icons.share_rounded, size: 20),
+                      label: const Text('Partager'),
+                    ),
+                  ),
+                ],
               ),
+              if (_balanceSummary != null) ...[
+                const SizedBox(height: 12),
+                TeamBalanceSummaryCard(summary: _balanceSummary!),
+              ],
               const SizedBox(height: 12),
               LayoutBuilder(
                 builder: (context, constraints) {
@@ -1565,8 +1680,8 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
         index <= _nomsEquipesAleatoiresCourants.length) {
       return _nomsEquipesAleatoiresCourants[index - 1];
     }
-    final theme = _themesNomsEquipes[_themeNomsEquipes];
-    final noms = theme['noms']! as List<String>;
+    final theme = teamNameThemes[_themeNomsEquipes];
+    final noms = theme.noms;
     return noms[(index - 1).clamp(0, noms.length - 1)];
   }
 
@@ -2078,7 +2193,7 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                headingRowColor: MaterialStateProperty.all(
+                headingRowColor: WidgetStateProperty.all(
                   theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
                 ),
                 columns: const [
@@ -2166,7 +2281,18 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
             ),
             const SizedBox(height: 8),
             _buildElevesGrille(context: context, isParticipation: false),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+            SwitchListTile(
+              value: _favoriserEquite,
+              onChanged: (v) => setState(() => _favoriserEquite = v),
+              title: const Text('Favoriser l\'équité'),
+              subtitle: const Text(
+                'Les élèves moins souvent tirés ont plus de chances',
+              ),
+              secondary: const Icon(Icons.balance_rounded),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            const SizedBox(height: 16),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2234,7 +2360,7 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
                             final n = _tirageNumberKey.currentState?.currentValue ??
                                 _nbGagnantsTirage;
                             setState(() => _nbGagnantsTirage = n);
-                            _faireTirage(n);
+                            _lancerTirageAvecCountdown(n);
                           }
                         : null,
                     icon: const Icon(Icons.shuffle_rounded, size: 20),
@@ -2541,7 +2667,23 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Choisissez le format d\'enregistrement :',
+                    'Enregistrer ou partager les équipes :',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: () async {
+                      Navigator.of(context).pop();
+                      await _partagerEquipes();
+                    },
+                    icon: const Icon(Icons.share_rounded),
+                    label: const Text('Partager (WhatsApp, SMS…)'),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Enregistrer sur l\'appareil :',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -2551,7 +2693,7 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
                     ('TXT', 'Fichier texte (.txt)', Icons.description_rounded),
                     ('ODT', 'LibreOffice / OpenDocument (.odt)', Icons.description_rounded),
                     ('DOCX', 'Microsoft Word (.docx)', Icons.description_rounded),
-                    ('PDF', 'Document PDF (.pdf)', Icons.picture_as_pdf_rounded),
+                    ('PDF', 'PDF coloré pour le tableau (.pdf)', Icons.picture_as_pdf_rounded),
                   ].map((e) {
                     final (ext, label, icon) = e;
                     return Padding(
@@ -2621,10 +2763,30 @@ class _TirageEquipesPageState extends State<TirageEquipesPage> {
               ),
               const SizedBox(height: 16),
               Text(
+                'Version ${AppVersion.full}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
                 'Créateur : DesertYGL',
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Données et confidentialité',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'PloufPlouf fonctionne hors ligne. Les listes d\'élèves et l\'historique d\'équité '
+                'restent sur votre appareil (SharedPreferences). Aucune donnée n\'est envoyée à un serveur.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 12),
               Text(
@@ -3252,7 +3414,6 @@ class _PloufLogoPainter extends CustomPainter {
 
     final brown = const Color(0xFF6D4C41);
     final brownDark = const Color(0xFF4E342E);
-    final cowWhite = const Color(0xFFFFFDE7);
     final cowBlack = const Color(0xFF212121);
     final blue = const Color(0xFF29B6F6);
 
@@ -3305,6 +3466,11 @@ class _PloufLogoPainter extends CustomPainter {
     ));
     canvas.drawPath(headPath, Paint()..color = faceGray);
     canvas.drawPath(headPath, Paint()..color = cowBlack..style = PaintingStyle.stroke..strokeWidth = stroke);
+    // Tache claire (pelage)
+    canvas.drawOval(
+      Rect.fromLTWH(headLeft + headW * 0.12, headTop + headH * 0.18, headW * 0.28, headH * 0.22),
+      Paint()..color = const Color(0xFFFFFDE7),
+    );
 
     // Poils ébouriffés (spikes en haut)
     final spikePath = Path();

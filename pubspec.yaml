@@ -1,5 +1,5 @@
 name: tirage_equipes
-description: "Tirage d'équipes et tirage au sort pour la classe (2 à 6 équipes, max 50 élèves, volontaires)."
+description: "PloufPlouf — Tirage d'équipes et tirage au sort pour la classe (2 à 10 équipes, roue, équité, export)."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.1+2
+version: 1.4.2+5
 
 author: DesertYGL
 license: GPL-3.0
@@ -37,6 +37,9 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  shared_preferences: ^2.3.5
+  share_plus: ^10.1.4
+  audioplayers: ^6.1.0
 
   # Import depuis fichiers (TXT, CSV, Excel, PDF, ODT, Word — Pronote, etc.)
   file_picker: ^10.0.0
@@ -76,6 +79,7 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/sounds/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

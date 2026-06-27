@@ -130,41 +130,110 @@ Future<List<int>> buildPdfBytes(
   List<List<String>> equipes,
   List<String> nomsEquipes,
 ) async {
-  final pdf = pw.Document();
-  final children = <pw.Widget>[
-    pw.Header(level: 0, text: 'Équipes constituées'),
-    pw.SizedBox(height: 20),
+  return buildStyledPdfBytes(equipes, nomsEquipes);
+}
+
+/// PDF coloré pour affichage au tableau ou impression.
+Future<List<int>> buildStyledPdfBytes(
+  List<List<String>> equipes,
+  List<String> nomsEquipes,
+) async {
+  const teamColors = [
+    PdfColor.fromInt(0xFF1565C0),
+    PdfColor.fromInt(0xFF6A1B9A),
+    PdfColor.fromInt(0xFF00695C),
+    PdfColor.fromInt(0xFFE65100),
+    PdfColor.fromInt(0xFFAD1457),
+    PdfColor.fromInt(0xFF2E7D32),
+    PdfColor.fromInt(0xFF5D4037),
+    PdfColor.fromInt(0xFF006064),
+    PdfColor.fromInt(0xFF4527A0),
+    PdfColor.fromInt(0xFFF57C00),
   ];
-  for (var i = 0; i < equipes.length; i++) {
-    final nom = i < nomsEquipes.length ? nomsEquipes[i] : 'Équipe ${i + 1}';
-    children.add(
-      pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Text(
-            '$nom (${equipes[i].length})',
-            style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
-          ),
-          pw.SizedBox(height: 6),
-          ...equipes[i].map(
-            (m) => pw.Padding(
-              padding: const pw.EdgeInsets.only(left: 12, bottom: 2),
-              child: pw.Text('• $m', style: const pw.TextStyle(fontSize: 12)),
-            ),
-          ),
-          pw.SizedBox(height: 12),
-        ],
-      ),
-    );
-  }
+
+  final pdf = pw.Document();
   pdf.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(40),
-      build: (context) => children,
+      margin: const pw.EdgeInsets.all(32),
+      build: (context) => [
+        pw.Row(
+          children: [
+            pw.Text(
+              'PloufPlouf',
+              style: pw.TextStyle(
+                fontSize: 22,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColor.fromInt(0xFF1E3A5F),
+              ),
+            ),
+            pw.Spacer(),
+            pw.Text(
+              'Équipes du ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
+              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+            ),
+          ],
+        ),
+        pw.SizedBox(height: 20),
+        pw.Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (var i = 0; i < equipes.length; i++)
+              pw.Container(
+                width: 220,
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: teamColors[i % teamColors.length], width: 2),
+                  borderRadius: pw.BorderRadius.circular(10),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      i < nomsEquipes.length ? nomsEquipes[i] : 'Équipe ${i + 1}',
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        fontWeight: pw.FontWeight.bold,
+                        color: teamColors[i % teamColors.length],
+                      ),
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Text(
+                      '${equipes[i].length} élève(s)',
+                      style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+                    ),
+                    pw.SizedBox(height: 8),
+                    ...equipes[i].map(
+                      (m) => pw.Padding(
+                        padding: const pw.EdgeInsets.only(bottom: 3),
+                        child: pw.Text('• $m', style: const pw.TextStyle(fontSize: 11)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ],
     ),
   );
   return (await pdf.save()).toList();
+}
+
+/// Texte prêt pour WhatsApp, SMS ou e-mail.
+String buildEquipesShareText(
+  List<List<String>> equipes,
+  List<String> nomsEquipes,
+) {
+  final buffer = StringBuffer('🎲 Équipes PloufPlouf\n\n');
+  for (var i = 0; i < equipes.length; i++) {
+    final nom = i < nomsEquipes.length ? nomsEquipes[i] : 'Équipe ${i + 1}';
+    buffer.writeln('$nom (${equipes[i].length})');
+    buffer.writeln(equipes[i].join(', '));
+    buffer.writeln();
+  }
+  return buffer.toString().trim();
 }
 
 /// Format CSV Pronote / Ecole Directe : point-virgule (;), UTF-8 avec BOM.
@@ -240,7 +309,7 @@ Future<bool> enregistrerEquipes(
     } else if (ext == 'docx') {
       bytes = buildDocxBytes(equipes, nomsEquipes);
     } else if (ext == 'pdf') {
-      bytes = await buildPdfBytes(equipes, nomsEquipes);
+      bytes = await buildStyledPdfBytes(equipes, nomsEquipes);
     } else {
       return false;
     }
